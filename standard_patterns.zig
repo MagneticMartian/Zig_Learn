@@ -218,3 +218,135 @@ test "custom writer" {
     _ = try bytes.writer().write(" Writer!");
     try expect(eql(u8, bytes.items, "Hello Writer!"));
 }
+test "fmt" {
+    const string = try std.fmt.allocPrint(
+        test_allocator,
+        "{d} + {d} = {d}",
+        .{ 9, 10, 19 },
+    );
+    defer test_allocator.free(string);
+    try expect(eql(u8, string, "9 + 10 = 19"));
+}
+test "print" {
+    var list = std.ArrayList(u8).init(test_allocator);
+    defer list.deinit();
+
+    try list.writer().print(
+        "{} + {} = {}",
+        .{ 9, 10, 19 },
+    );
+    try expect(eql(u8, list.items, "9 + 10 = 19"));
+}
+test "hello world" {
+    const out_file = std.io.getStdOut();
+    try out_file.writer().print(
+        "Hello {s}!\n",
+        .{"World"},
+    );
+}
+test "array printing" {
+    const string = try std.fmt.allocPrint(
+        test_allocator,
+        "{any} + {any} = {any}",
+        .{
+            @as([]const u8, &[_]u8{ 1, 4 }),
+            @as([]const u8, &[_]u8{ 2, 5 }),
+            @as([]const u8, &[_]u8{ 3, 9 }),
+        },
+    );
+    defer test_allocator.free(string);
+    try expect(eql(
+        u8,
+        string,
+        "{ 1, 4 } + { 2, 5 } = { 3, 9 }",
+    ));
+}
+const Person = struct {
+    name: []const u8,
+    birth_year: i32,
+    death_year: ?i32,
+    pub fn format(
+        self: Person,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("{s} ({}-", .{
+            self.name, self.birth_year,
+        });
+        if (self.death_year) |year| {
+            try writer.print("{}", .{year});
+        }
+        try writer.writeAll(")");
+    }
+};
+test "custom fmt" {
+    const john = Person{
+        .name = "John Carmack",
+        .birth_year = 1970,
+        .death_year = null,
+    };
+    const john_string = try std.fmt.allocPrint(
+        test_allocator,
+        "{s}",
+        .{john},
+    );
+    defer test_allocator.free(john_string);
+    try expect(eql(
+        u8,
+        john_string,
+        "John Carmack (1970-)",
+    ));
+    const claude = Person{
+        .name = "Claude Shannon",
+        .birth_year = 1916,
+        .death_year = 2001,
+    };
+    const claude_string = try std.fmt.allocPrint(
+        test_allocator,
+        "{s}",
+        .{claude},
+    );
+    defer test_allocator.free(claude_string);
+
+    try expect(eql(
+        u8,
+        claude_string,
+        "Claude Shannon (1916-2001)",
+    ));
+}
+const Place = struct { lat: f32, long: f32 };
+
+test "jspn parse" {
+    const parsed = try std.json.parseFromSlice(
+        Place,
+        test_allocator,
+        \\{ "lat": 40.253467, "long": -74.234163 }
+    ,
+        .{},
+    );
+    defer parsed.deinit();
+
+    const place = parsed.value;
+
+    try expect(place.lat == 40.253467);
+    try expect(place.long == -74.234163);
+}
+
+fn ticker(step: u8) void {
+    while (true) {
+        std.time.sleep(1 * std.time.ns_per_s);
+        tick += @as(isize, step);
+    }
+}
+var tick: isize = 0;
+
+test "threads" {
+    var thread = try std.Thread.spawn(.{}, ticker, .{@as(u8, 1)});
+    _ = thread;
+    try expect(tick == 0);
+    std.time.sleep(3 * std.time.ns_per_s / 2);
+    try expect(tick == 1);
+}
