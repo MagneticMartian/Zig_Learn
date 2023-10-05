@@ -350,3 +350,83 @@ test "threads" {
     std.time.sleep(3 * std.time.ns_per_s / 2);
     try expect(tick == 1);
 }
+
+test "hashing" {
+    const Point = struct { x: i32, y: i32 };
+
+    var map = std.AutoHashMap(u32, Point).init(
+        test_allocator,
+    );
+    defer map.deinit();
+
+    try map.put(1525, .{ .x = 1, .y = -4 });
+    try map.put(1550, .{ .x = 2, .y = -3 });
+    try map.put(1575, .{ .x = 3, .y = -2 });
+    try map.put(1600, .{ .x = 4, .y = -1 });
+
+    try expect(map.count() == 4);
+
+    var sum = Point{ .x = 0, .y = 0 };
+    var iterator = map.iterator();
+
+    while (iterator.next()) |entry| {
+        sum.x += entry.value_ptr.x;
+        sum.y += entry.value_ptr.y;
+    }
+    try expect(sum.x == 10);
+    try expect(sum.y == -10);
+}
+test "fetch put" {
+    var map = std.AutoHashMap(u32, f32).init(
+        test_allocator,
+    );
+    defer map.deinit();
+
+    try map.put(255, 10);
+    const old = try map.fetchPut(255, 100);
+
+    try expect(old.?.value == 10);
+    try expect(map.get(255).? == 100);
+}
+test "string hashmap" {
+    var map = std.StringHashMap(enum { cool, uncool }).init(
+        test_allocator,
+    );
+    defer map.deinit();
+
+    try map.put("loris", .uncool);
+    try map.put("me", .cool);
+
+    try expect(map.get("me").? == .cool);
+    try expect(map.get("loris").? == .uncool);
+}
+test "stack" {
+    const string = "(()())";
+    var stack = ArrayList(usize).init(
+        test_allocator,
+    );
+    defer stack.deinit();
+
+    const Pair = struct { open: usize, close: usize };
+    var pairs = ArrayList(Pair).init(
+        test_allocator,
+    );
+    defer pairs.deinit();
+
+    for (string, 0..) |char, i| {
+        if (char == '(') try stack.append(i);
+        if (char == ')')
+            try pairs.append(.{
+                .open = stack.pop(),
+                .close = i,
+            });
+    }
+    for (pairs.items, 0..) |pair, i| {
+        try expect(std.meta.eql(pair, switch (i) {
+            0 => Pair{ .open = 1, .close = 2 },
+            1 => Pair{ .open = 3, .close = 4 },
+            2 => Pair{ .open = 0, .close = 5 },
+            else => unreachable,
+        }));
+    }
+}
